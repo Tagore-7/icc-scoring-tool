@@ -287,13 +287,18 @@ let piSpRates = {};
 // ── Load data ──────────────────────────────────────────────────────────────────
 async function loadData() {
   try {
-    const [mr, pr] = await Promise.all([
-      fetch('model_export.json'),
-      fetch(PI_API)
-    ]);
-    if (!mr.ok || !pr.ok) throw new Error();
+    let mr, pr;
+    try { mr = await fetch('model_export.json'); }
+    catch(e) { throw new Error('model_export.json not found — make sure it is in the same folder as index.html'); }
+    if (!mr.ok) throw new Error('model_export.json missing (HTTP ' + mr.status + ')');
+
+    try { pr = await fetch(PI_API); }
+    catch(e) { throw new Error('Apps Script unreachable — check it is deployed with Anyone access'); }
+    if (!pr.ok) throw new Error('Apps Script returned HTTP ' + pr.status);
+
     modelData       = await mr.json();
     const piResp    = await pr.json();
+    if (piResp.error) throw new Error('Apps Script error: ' + piResp.error);
 
     // Live endpoint returns {pi_data:[...], overall_rate, last_updated, total_proposals}
     piData = piResp.pi_data || piResp;
@@ -303,7 +308,7 @@ async function loadData() {
     piData.forEach(p => {
       const o = document.createElement('option');
       o.value       = p.name;
-      o.textContent = `${p.name}  —  ${Math.round(p.rate*100)}% win rate  (${p.total} proposals)`;
+      o.textContent = p.name;
       sel.appendChild(o);
     });
 
@@ -319,7 +324,7 @@ async function loadData() {
     document.getElementById('app').style.display     = 'block';
   } catch(e) {
     document.getElementById('loading').textContent =
-      'Could not load data. Check that model_export.json is in the same folder and the Apps Script is deployed.';
+      'Error: ' + e.message;
   }
 }
 
@@ -341,7 +346,7 @@ function onPiSelected() {
   if (p) {
     piRate    = p.rate;
     piSpRates = p.sponsor_rates || {};
-    info.textContent  = `${p.wins} wins / ${p.total} submissions  (${Math.round(p.rate*100)}% overall win rate)`;
+    info.style.display = "none";
     info.style.display = 'block';
   }
 }
@@ -356,7 +361,7 @@ function updateManualRate() {
     el.textContent = `No history — using overall average (${Math.round(avg*100)}%)`;
   } else {
     piRate = wins/total;
-    el.textContent = `Win rate: ${wins}/${total} = ${Math.round(piRate*100)}%`;
+    el.textContent = `History entered`;
   }
 }
 
@@ -401,6 +406,24 @@ function updateSponsorGroup() {
   if (group && val.trim()) {
     badge.textContent  = 'Detected group: ' + (GROUP_LABELS[group]||group);
     badge.style.display = 'block';
+    // Task 3: Auto-fill funding type based on sponsor group
+    const fundingMap = {
+      'NSF':           'Federal',
+      'NIH_Health':    'Federal',
+      'DOD':           'Federal',
+      'DOE':           'Federal',
+      'NASA':          'Federal',
+      'Other_Federal': 'Federal',
+      'Transportation':'Federal',
+      'MTU_Internal':  'Internal',
+      'NonProfit':     'NonProfit',
+      'Industry':      'Industry',
+    };
+    const autoFunding = fundingMap[group];
+    if (autoFunding) {
+      const sel = document.getElementById('funding-select');
+      if (!sel.value) sel.value = autoFunding; // only auto-fill if not already set
+    }
   } else {
     badge.style.display = 'none';
   }
